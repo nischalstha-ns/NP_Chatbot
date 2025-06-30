@@ -1,0 +1,6 @@
+{
+  "name": "NP Chatbot",
+  "description": "A responsive and aesthetically pleasing chatbot powered by the Google Gemini API. Engage in a seamless conversation with a helpful AI assistant.",
+  "requestFramePermissions": [],
+  "prompt": ""
+}
