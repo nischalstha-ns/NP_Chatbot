@@ -61,7 +61,7 @@ const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, isLoading, onStop 
                     onKeyDown={handleKeyDown}
                     placeholder="Ask NP Chatbot anything..."
                     disabled={isLoading}
-                    className="w-full bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400 rounded-lg pr-14 pl-4 py-3 resize-none focus:outline-none focus:ring-2 focus:ring-sky-500 transition-all disabled:opacity-50 max-h-48 overflow-y-auto no-scrollbar"
+                    className="w-full bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400 rounded-lg pr-14 pl-4 py-3 resize-none focus:outline-none focus:ring-2 focus:ring-sky-500 transition-all disabled:opacity-50 min-h-12 max-h-48 overflow-y-auto no-scrollbar"
                     rows={1}
                     autoFocus
                 />
@@ -72,7 +72,7 @@ const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, isLoading, onStop 
                         absolute right-2 bottom-2 p-2 rounded-full
                         focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-100 dark:focus:ring-offset-slate-700 focus:ring-sky-500
                         transition-all duration-200 ease-in-out transform
-                        disabled:scale-100 disabled:cursor-not-allowed
+                        disabled:cursor-not-allowed
                         ${hasInput && !isLoading
                         ? 'bg-sky-500 dark:bg-sky-600 text-white shadow-md hover:bg-sky-600 dark:hover:bg-sky-500 hover:scale-110 active:scale-95'
                         : 'bg-slate-200 dark:bg-slate-600 text-slate-400 dark:text-slate-400 scale-0'

@@ -5,10 +5,16 @@ import { Message, Sender } from '../types';
 // for storing and accessing API keys, such as environment variables.
 const API_KEY = 'AIzaSyAXQp8JR-24NAOSShcT6zkz1Rtyrf4WD24';
 const MODEL = 'gemini-2.5-flash-preview-04-17';
-const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:streamGenerateContent?key=${API_KEY}`;
+// Use the Server-Sent Events (SSE) endpoint for more reliable streaming.
+const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:streamGenerateContent?key=${API_KEY}&alt=sse`;
 
 const SYSTEM_INSTRUCTION = {
-  parts: [{ text: 'You are a friendly and helpful chatbot named NP Chatbot. Your responses should be informative, well-formatted, and conversational. Avoid using markdown formatting like asterisks for bolding.' }]
+  parts: [{ text: `You are a friendly and helpful chatbot named NP Chatbot. Your responses should be informative and conversational.
+CRITICAL RULE: ALL code, including single-line snippets, MUST be enclosed in markdown code blocks (\`\`\`). For example:
+\`\`\`javascript
+console.log("Hello, World!");
+\`\`\`
+This rule is mandatory. Do not use any other formatting for code.` }]
 };
 
 /**
@@ -65,43 +71,32 @@ export async function* getStreamingResponse(history: Message[], signal: AbortSig
   let buffer = '';
 
   try {
-      // This robustly parses a stream of JSON objects, handling cases where objects are split across chunks.
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
         
-        let start = -1;
-        let braceCount = 0;
-        
-        for (let i = 0; i < buffer.length; i++) {
-            if (buffer[i] === '{') {
-                if (start === -1) start = i;
-                braceCount++;
-            } else if (buffer[i] === '}') {
-                braceCount--;
-                if (braceCount === 0 && start !== -1) {
-                    const jsonStr = buffer.substring(start, i + 1);
-                    try {
-                        const json = JSON.parse(jsonStr);
-                        const text = json?.candidates?.[0]?.content?.parts?.[0]?.text;
-                        if (text) {
-                            yield text;
-                        }
-                    } catch (e) {
-                        console.warn("Failed to parse JSON object from stream:", e);
-                    }
-                    start = -1; // Reset for the next object.
-                }
+        // A line-based parser for SSE. It robustly handles chunks that may contain
+        // multiple or partial SSE events.
+        let boundary = buffer.indexOf('\n');
+        while (boundary !== -1) {
+          const line = buffer.substring(0, boundary).trim();
+          buffer = buffer.substring(boundary + 1);
+
+          if (line.startsWith('data: ')) {
+            const jsonStr = line.substring(6); // Remove 'data: ' prefix
+            try {
+              const json = JSON.parse(jsonStr);
+              const text = json?.candidates?.[0]?.content?.parts?.[0]?.text;
+              if (text) {
+                yield text;
+              }
+            } catch (e) {
+              console.warn("Failed to parse JSON from SSE event:", e, "JSON string was:", jsonStr);
             }
-        }
-        
-        // Keep the remainder of the buffer if it's a partial object.
-        if (start !== -1) {
-            buffer = buffer.substring(start);
-        } else {
-            buffer = '';
+          }
+          boundary = buffer.indexOf('\n');
         }
       }
   } finally {

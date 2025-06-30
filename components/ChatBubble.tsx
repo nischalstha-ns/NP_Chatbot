@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Message, Sender } from '../types';
 import { 
   UserIcon, 
@@ -6,7 +8,9 @@ import {
   ThumbUpIcon,
   SpeakerWaveIcon,
   SpeakerXMarkIcon,
-  ShareIcon
+  ShareIcon,
+  ClipboardIcon,
+  CheckIcon
 } from '../constants';
 
 interface ChatBubbleProps {
@@ -28,37 +32,76 @@ const ActionButton: React.FC<React.PropsWithChildren<{ onClick: () => void; 'ari
     </div>
 );
 
+const CodeBlock: React.FC<{ language: string; code: string }> = ({ language, code }) => {
+    const [isCopied, setIsCopied] = useState(false);
+
+    const handleCopyCode = () => {
+        navigator.clipboard.writeText(code).then(() => {
+            setIsCopied(true);
+            setTimeout(() => setIsCopied(false), 2000);
+        });
+    };
+
+    return (
+        <div className="bg-slate-800 dark:bg-black/70 rounded-lg font-mono text-sm shadow-inner overflow-hidden my-4">
+            <div className="flex justify-between items-center px-4 py-2 bg-slate-700/50 dark:bg-black/50 text-xs text-slate-300 dark:text-slate-400 border-b border-slate-600/50 dark:border-slate-800/60">
+                <span className="font-sans font-medium capitalize">{language || 'code'}</span>
+                <button 
+                    onClick={handleCopyCode} 
+                    className="flex items-center gap-1.5 px-2 py-1 rounded-md text-slate-300 dark:text-slate-400 hover:bg-slate-600/50 dark:hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-800 dark:focus:ring-offset-black/70 focus:ring-sky-500"
+                    aria-label="Copy code"
+                >
+                    {isCopied ? <CheckIcon /> : <ClipboardIcon />}
+                    <span className="text-xs font-sans font-medium">{isCopied ? 'Copied!' : 'Copy'}</span>
+                </button>
+            </div>
+            <pre className="p-4 overflow-x-auto text-slate-50">
+                <code>{code}</code>
+            </pre>
+        </div>
+    );
+};
+
 
 const ChatBubble: React.FC<ChatBubbleProps> = ({ message, onFeedback }) => {
   const isUser = message.sender === Sender.User;
   const [isCopied, setIsCopied] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [canShare, setCanShare] = useState(false);
-
-  // Clean the text by removing markdown bold asterisks.
-  const cleanText = message.text.replace(/\*\*/g, '');
+  const [hasCode, setHasCode] = useState(false);
 
   useEffect(() => {
-    // Check for Web Share API support on mount
     if (navigator.share) {
       setCanShare(true);
     }
+    const codeBlockRegex = /```/g;
+    setHasCode(codeBlockRegex.test(message.text));
 
-    // Cleanup speech synthesis on component unmount
     return () => {
       if (window.speechSynthesis.speaking) {
         window.speechSynthesis.cancel();
       }
     };
-  }, []);
+  }, [message.text]);
+  
+  const stripMarkdown = (markdownText: string): string => {
+    let text = markdownText;
+    text = text.replace(/```[\s\S]*?```/g, ' (Code block). ');
+    text = text.replace(/`([^`]+)`/g, '$1');
+    text = text.replace(/(\*\*|__)(.*?)\1/g, '$2');
+    text = text.replace(/(\*|_)(.*?)\1/g, '$2');
+    text = text.replace(/!\[(.*?)\]\(.*?\)/g, '$1');
+    text = text.replace(/\[(.*?)\]\(.*?\)/g, '$1');
+    text = text.replace(/^#+\s/gm, '');
+    text = text.replace(/(\n\s*){2,}/g, '\n');
+    return text.trim();
+  };
 
   const handleCopy = () => {
-    if (navigator.clipboard) {
-      navigator.clipboard.writeText(cleanText).then(() => {
-        setIsCopied(true);
-        setTimeout(() => setIsCopied(false), 2000);
-      });
-    }
+    navigator.clipboard.writeText(message.text).then(() => {
+      setIsCopied(true);
+      setTimeout(() => setIsCopied(false), 2000);
+    });
   };
 
   const handleSpeak = () => {
@@ -66,11 +109,14 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, onFeedback }) => {
       window.speechSynthesis.cancel();
       setIsSpeaking(false);
     } else {
-      const utterance = new SpeechSynthesisUtterance(cleanText);
-      utterance.onend = () => setIsSpeaking(false);
-      utterance.onerror = () => setIsSpeaking(false); // Handle potential errors
-      window.speechSynthesis.speak(utterance);
-      setIsSpeaking(true);
+      const textForSpeech = stripMarkdown(message.text);
+      if (textForSpeech) {
+        const utterance = new SpeechSynthesisUtterance(textForSpeech);
+        utterance.onend = () => setIsSpeaking(false);
+        utterance.onerror = () => setIsSpeaking(false);
+        window.speechSynthesis.speak(utterance);
+        setIsSpeaking(true);
+      }
     }
   };
 
@@ -79,7 +125,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, onFeedback }) => {
       try {
         await navigator.share({
           title: 'NP Chatbot Response',
-          text: cleanText,
+          text: message.text,
         });
       } catch (error) {
         console.error('Error sharing:', error);
@@ -87,16 +133,40 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, onFeedback }) => {
     }
   };
 
+  const markdownComponents = {
+      code({node, inline, className, children, ...props}: any) {
+          const match = /language-(\w+)/.exec(className || '');
+          if (!inline && match) {
+              return <CodeBlock language={match[1]} code={String(children).trim()} />;
+          }
+          return (
+              <code 
+                className="bg-slate-200 dark:bg-slate-600/50 rounded-md px-1.5 py-1 font-mono text-sm" 
+                {...props}
+              >
+                  {children}
+              </code>
+          );
+      },
+      a: ({node, ...props}: any) => <a className="text-sky-500 dark:text-sky-400 hover:underline" target="_blank" rel="noopener noreferrer" {...props} />,
+      ul: ({node, ...props}: any) => <ul className="list-disc list-outside ml-5 my-2 space-y-1" {...props} />,
+      ol: ({node, ...props}: any) => <ol className="list-decimal list-outside ml-5 my-2 space-y-1" {...props} />,
+      p: ({ node, children }: any) => {
+        if (node.children[0]?.tagName === 'code' && /language-/.test(node.children[0].properties?.className?.join(' '))) {
+          return <>{children}</>;
+        }
+        return <p className="mb-2 last:mb-0">{children}</p>;
+      },
+  };
+  
   const bubbleClasses = isUser
-    ? 'bg-sky-500 text-white self-end rounded-l-xl rounded-t-xl'
-    : 'bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-200 self-start rounded-r-xl rounded-t-xl';
+    ? 'bg-sky-500 text-white self-end rounded-l-xl rounded-t-xl px-4 py-3'
+    : 'bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-200 self-start rounded-r-xl rounded-t-xl px-4 py-3';
 
   const containerClasses = isUser ? 'justify-end' : 'justify-start';
 
   const Icon = isUser ? UserIcon : BotIcon;
-  const iconContainerClasses = isUser
-    ? 'bg-slate-200 dark:bg-slate-600 text-slate-600 dark:text-white'
-    : 'bg-slate-200 dark:bg-slate-600 text-slate-600 dark:text-white';
+  const iconContainerClasses = 'bg-slate-200 dark:bg-slate-600 text-slate-600 dark:text-white';
 
   return (
     <div className={`flex items-start gap-3 w-full ${containerClasses}`}>
@@ -107,29 +177,32 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, onFeedback }) => {
       )}
       <div className="flex flex-col w-full max-w-[85%] md:max-w-[75%]">
         <div
-          className={`px-4 py-3 ${bubbleClasses} text-base whitespace-pre-wrap leading-relaxed shadow-sm`}
+          className={`text-base leading-relaxed shadow-sm ${bubbleClasses}`}
         >
-          {cleanText}
+          {isUser ? (
+            <div className="whitespace-pre-wrap">{message.text}</div>
+          ) : (
+            <ReactMarkdown
+                components={markdownComponents}
+                remarkPlugins={[remarkGfm]}
+                urlTransform={(uri) => uri}
+            >
+                {message.text}
+            </ReactMarkdown>
+          )}
         </div>
         {!isUser && message.text && (
             <div className="mt-2 flex items-center gap-1.5">
-                <button
-                    onClick={handleCopy}
-                    className="flex items-center gap-1.5 py-1.5 px-2.5 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-700 dark:hover:text-slate-200 transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-slate-800 focus:ring-sky-500"
-                    aria-label={isCopied ? "Copied" : "Copy text"}
-                >
-                    {isCopied ? (
-                        <svg className="w-5 h-5 text-green-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                        </svg>
-                    ) : (
-                        <svg className="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
-                          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
-                        </svg>
-                    )}
-                    <span className="text-sm font-medium">{isCopied ? "Copied!" : "Copy"}</span>
-                </button>
+                {!hasCode && (
+                    <button
+                        onClick={handleCopy}
+                        className="flex items-center gap-1.5 py-1.5 px-2.5 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-700 dark:hover:text-slate-200 transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-slate-800 focus:ring-sky-500"
+                        aria-label={isCopied ? "Copied" : "Copy text"}
+                    >
+                        {isCopied ? <CheckIcon /> : <ClipboardIcon />}
+                        <span className="text-sm font-medium">{isCopied ? "Copied!" : "Copy"}</span>
+                    </button>
+                )}
                 <ActionButton onClick={() => onFeedback(message.id)} aria-label="Like response" active={message.feedback === 'liked'} tooltip={message.feedback === 'liked' ? "Unlike" : "Like"}>
                     <ThumbUpIcon />
                 </ActionButton>
